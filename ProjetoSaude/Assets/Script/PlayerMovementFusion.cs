@@ -79,6 +79,11 @@ public class PlayerMovementFusion : NetworkBehaviour
         Debug.Log($"Pontuação: {score}");
     }
 
+    public int GetScore()
+    {
+        return score;
+    }
+
     public override void FixedUpdateNetwork()
     {
         if (GetInput(out NetworkInputData data))
