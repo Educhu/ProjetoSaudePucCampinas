@@ -5,20 +5,30 @@ using Fusion;
 
 public class PlayerDataNetworked : NetworkBehaviour
 {
+
     private const int STARTING_LIVES = 3;
-    private const float INVULNERABILITY_DURATION = 2f; // Duração da invulnerabilidade em segundos
-    private const float BLINK_INTERVAL = 0.2f; // Intervalo de piscar
+    private const float INVULNERABILITY_DURATION = 2f;
+    private const float BLINK_INTERVAL = 0.2f;
+    public bool IsDead { get; private set; } = false;
 
     [Networked]
     public int Lives { get; private set; }
 
+    [Networked]
+    private bool spriteVisible { get; set; } = true;
+
     private bool isInvulnerable = false;
     private SpriteRenderer _spriteRenderer;
+    private bool hasNotifiedReadyManager = false;
+    private bool notifiedReadyManager = false; // Variável para garantir que só notifique uma vez
 
     private void Start()
     {
-        // Obtém o SpriteRenderer do jogador para controlar sua visibilidade
         _spriteRenderer = GetComponent<SpriteRenderer>();
+        if (_spriteRenderer == null)
+        {
+            Debug.LogError("SpriteRenderer não encontrado!");
+        }
     }
 
     public override void Spawned()
@@ -26,6 +36,7 @@ public class PlayerDataNetworked : NetworkBehaviour
         if (Object.HasStateAuthority)
         {
             Lives = STARTING_LIVES;
+            spriteVisible = true;
         }
     }
 
@@ -33,39 +44,68 @@ public class PlayerDataNetworked : NetworkBehaviour
     {
         if (!isInvulnerable)
         {
+            RPC_TakeDamage();
+        }
+    }
+
+    [Rpc(RpcSources.All, RpcTargets.All)]
+    public void RPC_TakeDamage()
+    {
+        if (!isInvulnerable)
+        {
             Lives--;
 
-            StartCoroutine(BecomeInvulnerable());
-
-            if (Lives <= 0)
+            if (Lives > 0)
+            {
+                StartCoroutine(BecomeInvulnerable());
+            }
+            else
             {
                 Die();
             }
         }
     }
 
-    // Corrotina para tornar o jogador invulnerável por um tempo e fazê-lo piscar
     private IEnumerator BecomeInvulnerable()
     {
         isInvulnerable = true;
-
         float elapsedTime = 0f;
 
-        // Enquanto o jogador estiver invulnerável, ele vai piscar
         while (elapsedTime < INVULNERABILITY_DURATION)
         {
-            _spriteRenderer.enabled = !_spriteRenderer.enabled; // Alterna a visibilidade
-            yield return new WaitForSeconds(BLINK_INTERVAL); // Espera um intervalo para piscar
+            spriteVisible = !spriteVisible;
+            yield return new WaitForSeconds(BLINK_INTERVAL);
             elapsedTime += BLINK_INTERVAL;
         }
 
-        // Garante que o sprite fique visível após a invulnerabilidade
-        _spriteRenderer.enabled = true;
+        spriteVisible = true;
         isInvulnerable = false;
     }
 
-    public void Die()
+    private void Die()
     {
-        gameObject.SetActive(false);
+        if (IsDead) return; // Já está morto
+
+        IsDead = true;
+
+        if (!hasNotifiedReadyManager)
+        {
+            NotifyReadyManager();
+            hasNotifiedReadyManager = true; // Garante que o ReadyManager só seja notificado uma vez
+        }
+
+        Runner.Despawn(Object);
+    }
+    public override void FixedUpdateNetwork()
+    {
+        if (_spriteRenderer != null && _spriteRenderer.enabled != spriteVisible)
+        {
+            _spriteRenderer.enabled = spriteVisible;
+        }
+    }
+
+    private void NotifyReadyManager()
+    {
+        ReadyManager.Instance.CheckPlayersDead();
     }
 }

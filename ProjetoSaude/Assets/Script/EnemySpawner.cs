@@ -5,35 +5,29 @@ using UnityEngine;
 using System.Collections;
 using UnityEngine.UI;
 
-
 public class EnemySpawner : NetworkBehaviour
 {
-
     public NetworkObject enemyPrefab;
-    public NetworkObjectPoolDefault objectPool; // Referência à pool de objetos
     public float spawnInterval; // Intervalo de tempo entre cada spawn
     public float minX = -12f; // Limite mínimo no eixo X para a posição do spawn
     public float maxX = 12f; // Limite máximo no eixo X para a posição do spawn
     public float minY = 20f; // Limite mínimo no eixo Y para a posição do spawn
     public float maxY = 25f; // Limite máximo no eixo Y para a posição do spawn
-
+    public GameObject boss; // Referência ao GameObject do Boss
+    public float BossAparece;
     private float timer; // Contador de tempo para controlar os spawns
     public GameObject readyButton;
-    private void Start()
-    {
-        gameObject.SetActive(false); // Desativa o spawner inicialmente
-        
-    }
+    private bool bossActivated = false;
 
+
+    public void Start()
+    {
+        StartCoroutine(ActivateBossAfterDelay(BossAparece));
+    }
     private void Update()
     {
-        if (Object.HasStateAuthority)
+        if (Object.HasStateAuthority && gameObject.activeInHierarchy)
         {
-            if (!gameObject.activeInHierarchy)
-            {
-                return; // Não faz nada se o spawner estiver desativado
-            }
-
             timer += Time.deltaTime;
 
             if (timer >= spawnInterval)
@@ -46,36 +40,73 @@ public class EnemySpawner : NetworkBehaviour
 
     private void SpawnEnemy()
     {
-        Vector3 spawnPosition = new Vector3(UnityEngine.Random.Range(minX, maxX), UnityEngine.Random.Range(minY, maxY), 0);
+        // Gera uma posição aleatória dentro dos limites definidos
+        Vector3 spawnPosition = new Vector3(
+            UnityEngine.Random.Range(minX, maxX),
+            UnityEngine.Random.Range(minY, maxY),
+            0
+        );
+
+        // Ajusta a posição com a posição do spawner
         spawnPosition += transform.position;
 
-        // Obtenha o inimigo da pool
-        NetworkObject enemyObject = objectPool.GetObjectFromPool(enemyPrefab);
-
-        // Verifica se conseguiu obter o objeto da pool antes de fazer o spawn
-        if (enemyObject != null)
+        // Spawna o inimigo usando o `Runner`
+        if (enemyPrefab != null)
         {
-            // Defina a posição e rotação do inimigo antes de spawná-lo na rede
-            enemyObject.transform.position = spawnPosition;
-            enemyObject.transform.rotation = Quaternion.identity;
-
-            // Faça o spawn do inimigo na rede apenas pelo Host
-            Runner.Spawn(enemyObject, spawnPosition, Quaternion.identity, Object.InputAuthority);
-
-            // Atualize o intervalo de spawn
-            spawnInterval = UnityEngine.Random.Range(0.1f, 1f);
+            NetworkObject enemyObject = Runner.Spawn(enemyPrefab, spawnPosition, Quaternion.identity, Object.InputAuthority);
+            spawnInterval = UnityEngine.Random.Range(0.1f, 1f); // Varia o intervalo entre spawns
         }
         else
         {
-            Debug.LogWarning("Não foi possível obter um objeto da pool.");
+            Debug.LogWarning("O prefab do inimigo não está definido.");
         }
     }
-    public void ActivateSpawner()
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RpcDestroyEnemy(NetworkObject enemy)
     {
-        // Ative o spawner aqui. 
-        // Por exemplo, você pode ativar um GameObject ou habilitar um componente.
-        gameObject.SetActive(true); // Exemplo de ativação
-        Debug.Log("EnemySpawner ativado.");
+        if (enemy != null)
+        {
+            Runner.Despawn(enemy); // Despawns o inimigo
+            Debug.Log($"Inimigo destruído: {enemy}");
+        }
     }
 
+    public void ActivateSpawner()
+    {
+        gameObject.SetActive(true);
+        Debug.Log("EnemySpawner ativado.");
+        readyButton.SetActive(false); // Desativa o botão
+
+        // Iniciar contagem regressiva para ativar o boss após 1m30s
+      
+    }
+
+    private IEnumerator ActivateBossAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+
+        if (boss != null && !bossActivated)
+        {
+            boss.SetActive(true);
+            bossActivated = true; // Para garantir que o boss só seja ativado uma vez
+            Debug.Log("Boss ativado!");
+        }
+        else
+        {
+            Debug.LogWarning("O Boss não foi atribuído ou já foi ativado.");
+        }
+    }
+
+    // Método para desenhar gizmos no editor
+    private void OnDrawGizmos()
+    {
+        // Definindo a cor dos gizmos
+        Gizmos.color = Color.red;
+
+        // Desenhando uma caixa que representa a área de spawn
+        Vector3 center = transform.position + new Vector3((minX + maxX) / 2, (minY + maxY) / 2, 0);
+        Vector3 size = new Vector3(maxX - minX, maxY - minY, 1);
+        Gizmos.DrawWireCube(center, size);
+    }
 }
